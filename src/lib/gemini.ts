@@ -1,37 +1,51 @@
-import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold, GenerateContentParameters } from "@google/genai";
+import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || "" });
+// Initialize the GoogleGenAI client
+// The platform handles the GEMINI_API_KEY environment variable.
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
-// Model Fallback Logic
+// Recommended Model Selection as per gemini-api skill
 const PREFERRED_PRO_MODEL = "gemini-3.1-pro-preview";
 const PREFERRED_FLASH_MODEL = "gemini-3-flash-preview";
-const FALLBACK_MODEL = "gemini-1.5-flash";
 
-async function generateWithFallback(params: GenerateContentParameters) {
-  const modelsToTry = [params.model, FALLBACK_MODEL].filter((m, i, self) => m && self.indexOf(m) === i);
+// Fallback models if preferred ones fail
+const FALLBACK_MODELS = [
+  "gemini-flash-latest",
+  "gemini-3.1-flash-lite-preview",
+  "gemini-2.0-flash-preview"
+];
+
+async function generateWithFallback(params: {
+  model: string;
+  contents: any;
+  config?: any;
+}) {
+  const modelsToTry = [params.model, ...FALLBACK_MODELS].filter((m, i, self) => m && self.indexOf(m) === i);
   
   let lastError: any = null;
   
   for (const modelName of modelsToTry) {
     try {
+      // Correct usage: ai.models.generateContent
       const response = await ai.models.generateContent({
-        ...params,
-        model: modelName as string,
+        model: modelName,
+        contents: params.contents,
+        config: params.config,
       });
+      
       return response;
     } catch (error: any) {
       lastError = error;
       console.warn(`Model ${modelName} failed, trying fallback...`, error);
-      // If it's a 404 or 403, we definitely want to try the fallback
-      const status = error?.status || error?.code;
-      if (status === 404 || status === 403 || status === "NOT_FOUND" || status === "PERMISSION_DENIED") {
+      
+      const msg = error?.message?.toLowerCase() || "";
+      // If it's a 404, 403, or "unsupported", try next
+      if (msg.includes("not found") || msg.includes("permission") || msg.includes("unsupported") || msg.includes("not supported") || msg.includes("404")) {
         continue;
       }
-      // For other errors (like quota), we might still want to try fallback if it's a different model
-      if (modelName !== FALLBACK_MODEL) {
-        continue;
-      }
-      throw error;
+      
+      // For other errors (like quota), still try other models just in case
+      continue;
     }
   }
   throw lastError;
@@ -59,7 +73,7 @@ export async function generateElitePrompt(components: PromptComponents) {
     modeInstruction = "Focus on high-performance, structured engineering with clear boundaries and logical flow.";
   }
 
-  const systemInstruction = `You are a Gemini-Class Elite Prompt Engineer and Master Architect of Large Language Model interactions. Your goal is to transform basic user requirements into high-performance, structured, and ultra-precise LLM prompts optimized for state-of-the-art models like Gemini 2.0.
+  const systemInstruction = `You are a Gemini-Class Elite Prompt Engineer and Master Architect of Large Language Model interactions. Your goal is to transform basic user requirements into high-performance, structured, and ultra-precise LLM prompts optimized for state-of-the-art models.
 
 Your engineering process must involve:
 1. Deep Semantic Analysis: Deconstruct the user's intent to identify implicit needs and latent requirements.
@@ -240,7 +254,8 @@ Return a JSON object with:
       }
     });
 
-    return JSON.parse(response.text || "{}") as { score: number; securityScore: number; suggestions: string[]; securityAudit: string };
+    const text = response.text;
+    return JSON.parse(text || "{}") as { score: number; securityScore: number; suggestions: string[]; securityAudit: string };
   } catch (error) {
     console.error("Analysis Error:", error);
     return { score: 0, securityScore: 0, suggestions: ["Could not analyze prompt."], securityAudit: "Security audit failed." };
