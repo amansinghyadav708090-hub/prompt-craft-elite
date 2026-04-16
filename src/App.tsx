@@ -295,7 +295,13 @@ export default function App() {
           setAuthMode('login');
         }
       } catch (err: any) {
-        setAuthError(err.message);
+        if (err.code === 'auth/operation-not-allowed') {
+          setAuthError('Email/Password login is not enabled in Firebase Console. Please enable it in the Authentication tab.');
+        } else if (err.code === 'auth/popup-blocked') {
+          setAuthError('Sign-in popup was blocked. Please allow popups or open the app in a new tab.');
+        } else {
+          setAuthError(err.message);
+        }
       }
     };
 
@@ -390,7 +396,14 @@ export default function App() {
 
             <div className="w-full space-y-4">
               <button 
-                onClick={() => signInWithGoogle()}
+                onClick={async () => {
+                  try {
+                    setAuthError(null);
+                    await signInWithGoogle();
+                  } catch (err: any) {
+                    setAuthError(err.message);
+                  }
+                }}
                 className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-white text-black rounded-xl font-bold hover:bg-zinc-200 transition-all active:scale-[0.98]"
               >
                 <LogIn size={18} />

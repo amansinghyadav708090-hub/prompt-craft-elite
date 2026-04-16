@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, onAuthStateChanged, User, db, doc, getDoc, setDoc } from '../lib/firebase';
+import { auth, onAuthStateChanged, User, db, doc, getDoc, setDoc, getRedirectResult } from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -15,6 +15,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    // Handle redirect result
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result) {
+          console.log("Login success via redirect:", result.user);
+        }
+      })
+      .catch((error) => {
+        console.error("Redirect error:", error);
+      });
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       
