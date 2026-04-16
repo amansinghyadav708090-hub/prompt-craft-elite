@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user-specific settings and metadata.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "role": { "type": "string", "enum": ["user", "admin"] }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "SynthesisSession": {
+      "title": "Synthesis Session",
+      "description": "Represents a single prompt engineering session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string", "description": "Owner UID" },
+        "title": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "generatedPrompt": { "type": "string" },
+        "analysis": { "type": "object" },
+        "lastComponents": { "type": "object" },
+        "messages": { "type": "array" }
+      },
+      "required": ["id", "uid", "title", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "User profile documents."
+    },
+    "/sessions/{sessionId}": {
+      "schema": "SynthesisSession",
+      "description": "Prompt engineering sessions."
+    }
+  }
+}
