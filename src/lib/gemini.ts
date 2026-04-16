@@ -1,8 +1,18 @@
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 
-// Initialize the GoogleGenAI client
-// The platform handles the GEMINI_API_KEY environment variable.
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// Initialize the GoogleGenAI client lazily to ensure environment variables are loaded
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.error("GEMINI_API_KEY is not defined in the environment.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey: apiKey || "" });
+  }
+  return aiInstance;
+}
 
 // Recommended Model Selection as per gemini-api skill
 const PREFERRED_PRO_MODEL = "gemini-3.1-pro-preview";
@@ -10,9 +20,14 @@ const PREFERRED_FLASH_MODEL = "gemini-3-flash-preview";
 
 // Fallback models if preferred ones fail
 const FALLBACK_MODELS = [
+  "gemini-3-flash-preview",
+  "gemini-3.1-pro-preview",
   "gemini-flash-latest",
   "gemini-3.1-flash-lite-preview",
-  "gemini-2.0-flash-preview"
+  "gemini-2.0-flash-preview",
+  "gemini-2.0-flash-exp",
+  "gemini-2.0-flash",
+  "gemini-pro-preview"
 ];
 
 async function generateWithFallback(params: {
@@ -23,6 +38,7 @@ async function generateWithFallback(params: {
   const modelsToTry = [params.model, ...FALLBACK_MODELS].filter((m, i, self) => m && self.indexOf(m) === i);
   
   let lastError: any = null;
+  const ai = getAI();
   
   for (const modelName of modelsToTry) {
     try {

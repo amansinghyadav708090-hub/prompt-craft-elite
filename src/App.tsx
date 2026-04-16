@@ -180,10 +180,8 @@ export default function App() {
       
       if (isQuotaError(error)) {
         errorMessage = "The AI service is currently at its capacity or you've hit a rate limit. Please wait a minute and try again.";
-      } else if (error?.message?.includes("API key")) {
-        errorMessage = "The Gemini API key is missing or invalid. Please check your environment configuration.";
       } else if (error?.message) {
-        errorMessage = `Synthesis failed: ${error.message}`;
+        errorMessage = `Synthesis Error: ${error.message}`;
       }
       
       alert(errorMessage);
