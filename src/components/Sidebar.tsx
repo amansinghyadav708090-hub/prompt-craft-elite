@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MessageSquare, Plus, Trash2, Clock, ChevronLeft, ChevronRight, LogOut, User as UserIcon } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, Clock, ChevronLeft, ChevronRight, LogOut, User as UserIcon, Download } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Message, PromptComponents } from '@/src/lib/gemini';
 import { useAuth } from './AuthProvider';
@@ -30,6 +30,9 @@ interface SidebarProps {
   onDeleteSession: (id: string) => void;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
+  installPrompt: any;
+  onInstall: () => void;
+  isInstalled: boolean;
 }
 
 export default function Sidebar({
@@ -39,7 +42,10 @@ export default function Sidebar({
   onNewSession,
   onDeleteSession,
   isOpen,
-  setIsOpen
+  setIsOpen,
+  installPrompt,
+  onInstall,
+  isInstalled
 }: SidebarProps) {
   const { user, isAdmin } = useAuth();
 
@@ -163,6 +169,17 @@ export default function Sidebar({
               <LogOut size={14} />
             </button>
           </div>
+
+          {installPrompt && !isInstalled && (
+            <button
+              onClick={onInstall}
+              className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-black rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+            >
+              <Download size={14} />
+              Install App
+            </button>
+          )}
+
           <div className="mt-4 text-[9px] font-mono text-zinc-700 uppercase tracking-widest text-center">
             System v1.0.4 // DSL_CORE
           </div>

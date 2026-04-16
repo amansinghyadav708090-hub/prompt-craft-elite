@@ -90,21 +90,37 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
-  const [showInstallPrompt, setShowInstallPrompt] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
 
   // PWA Install Logic
   useEffect(() => {
-    const isInstalled = window.matchMedia('(display-mode: standalone)').matches;
-    const hasSeenPrompt = localStorage.getItem('has_seen_install_prompt');
+    const checkInstalled = () => {
+      setIsInstalled(window.matchMedia('(display-mode: standalone)').matches);
+    };
     
-    if (!isInstalled && !hasSeenPrompt && user) {
-      setShowInstallPrompt(true);
-    }
-  }, [user]);
+    checkInstalled();
+    window.matchMedia('(display-mode: standalone)').addEventListener('change', checkInstalled);
 
-  const dismissInstallPrompt = () => {
-    setShowInstallPrompt(false);
-    localStorage.setItem('has_seen_install_prompt', 'true');
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
   };
 
   // Real-time Firestore Sync
@@ -435,14 +451,20 @@ export default function App() {
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={handleSelectSession}
-        onNewSession={handleNewChat}
+        onNewSession={() => {
+          handleNewChat();
+          setIsSidebarOpen(false);
+        }}
         onDeleteSession={handleDeleteSession}
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
+        installPrompt={deferredPrompt}
+        onInstall={handleInstallClick}
+        isInstalled={isInstalled}
       />
 
       <AnimatePresence>
-        {showInstallPrompt && (
+        {deferredPrompt && !isInstalled && user && (
           <motion.div 
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
@@ -463,13 +485,13 @@ export default function App() {
               </div>
               <div className="flex gap-3">
                 <button 
-                  onClick={dismissInstallPrompt}
+                  onClick={handleInstallClick}
                   className="flex-1 py-2 bg-emerald-500 text-black rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-400 transition-all"
                 >
                   Install Now
                 </button>
                 <button 
-                  onClick={dismissInstallPrompt}
+                  onClick={() => setDeferredPrompt(null)}
                   className="px-4 py-2 bg-zinc-900 text-zinc-500 rounded-lg text-[10px] font-bold uppercase tracking-widest hover:text-zinc-300 transition-all"
                 >
                   Later
