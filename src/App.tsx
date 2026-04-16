@@ -11,9 +11,8 @@ import PromptForm from './components/PromptForm';
 import PromptResult from './components/PromptResult';
 import Sidebar, { Session } from './components/Sidebar';
 import { generateElitePrompt, analyzePrompt, processInteraction, PromptComponents, Message } from './lib/gemini';
-import { useAuth } from './components/AuthProvider';
-import { signInWithGoogle, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, db, collection, doc, setDoc, onSnapshot, query, where, orderBy, deleteDoc, handleFirestoreError, OperationType, auth } from './lib/firebase';
-import { Mail, Lock, UserPlus, ArrowLeft, Download } from 'lucide-react';
+import { db, collection, doc, setDoc, getDoc, getDocs, query, where, orderBy, deleteDoc, handleFirestoreError, OperationType } from './lib/firebase';
+import { Download } from 'lucide-react';
 
 // Individual Letter Component for Hacking Aesthetic
 const Letter = ({ char, delay = 0, trigger = 0 }: { char: string; delay?: number; trigger?: number }) => {
@@ -70,7 +69,6 @@ const Word = ({ text, delay = 0, trigger = 0 }: { text: string; delay?: number; 
 );
 
 export default function App() {
-  const { user, loading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [isRefining, setIsRefining] = useState(false);
   const [generatedPrompt, setGeneratedPrompt] = useState<string | null>(null);
@@ -86,10 +84,6 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [authError, setAuthError] = useState<string | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
@@ -123,28 +117,23 @@ export default function App() {
     }
   };
 
-  // Real-time Firestore Sync
+  // Local Storage Session Sync
   useEffect(() => {
-    if (!user) {
-      setSessions([]);
-      return;
+    const savedSessions = localStorage.getItem('promptcraft_sessions');
+    if (savedSessions) {
+      try {
+        const parsed = JSON.parse(savedSessions);
+        setSessions(parsed.sort((a: Session, b: Session) => b.timestamp - a.timestamp));
+      } catch (e) {
+        console.error("Failed to parse sessions", e);
+      }
     }
+  }, []);
 
-    const q = query(
-      collection(db, 'sessions'),
-      where('uid', '==', user.uid),
-      orderBy('timestamp', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => doc.data() as Session);
-      setSessions(docs);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'sessions');
-    });
-
-    return () => unsubscribe();
-  }, [user]);
+  const saveSessionsToLocal = (updatedSessions: Session[]) => {
+    localStorage.setItem('promptcraft_sessions', JSON.stringify(updatedSessions));
+    setSessions(updatedSessions.sort((a, b) => b.timestamp - a.timestamp));
+  };
 
   const isQuotaError = (error: any) => {
     const msg = error?.message?.toLowerCase() || "";
@@ -170,7 +159,7 @@ export default function App() {
       
       const sessionData: Session = {
         id: sessionId,
-        uid: user!.uid,
+        uid: 'guest',
         title: sessionTitle,
         timestamp: Date.now(),
         generatedPrompt: prompt,
@@ -179,13 +168,25 @@ export default function App() {
         messages: []
       };
 
-      await setDoc(doc(db, 'sessions', sessionId), sessionData);
+      const updatedSessions = activeSessionId 
+        ? sessions.map(s => s.id === sessionId ? sessionData : s)
+        : [sessionData, ...sessions];
+      
+      saveSessionsToLocal(updatedSessions);
       setActiveSessionId(sessionId);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Generation failed:", error);
+      let errorMessage = "An unexpected error occurred during synthesis. Please try again.";
+      
       if (isQuotaError(error)) {
-        alert("The AI service is currently at its capacity or you've hit a rate limit. Please wait a minute and try again.");
+        errorMessage = "The AI service is currently at its capacity or you've hit a rate limit. Please wait a minute and try again.";
+      } else if (error?.message?.includes("API key")) {
+        errorMessage = "The Gemini API key is missing or invalid. Please check your environment configuration.";
+      } else if (error?.message) {
+        errorMessage = `Synthesis failed: ${error.message}`;
       }
+      
+      alert(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -219,23 +220,35 @@ export default function App() {
         setAnalysis(newAnalysis);
 
         if (activeSessionId) {
-          const sessionRef = doc(db, 'sessions', activeSessionId);
-          await setDoc(sessionRef, {
-            messages: [...messages, userMsg, newAssistantMsg],
-            analysis: newAnalysis,
-            timestamp: Date.now()
-          }, { merge: true });
+          const updatedSessions = sessions.map(s => {
+            if (s.id === activeSessionId) {
+              return {
+                ...s,
+                messages: [...messages, userMsg, newAssistantMsg],
+                analysis: newAnalysis,
+                timestamp: Date.now()
+              };
+            }
+            return s;
+          });
+          saveSessionsToLocal(updatedSessions);
         }
       } else {
         const newAssistantMsg: Message = { role: 'assistant', content: result.content };
         setMessages(prev => [...prev, newAssistantMsg]);
 
         if (activeSessionId) {
-          const sessionRef = doc(db, 'sessions', activeSessionId);
-          await setDoc(sessionRef, {
-            messages: [...messages, userMsg, newAssistantMsg],
-            timestamp: Date.now()
-          }, { merge: true });
+          const updatedSessions = sessions.map(s => {
+            if (s.id === activeSessionId) {
+              return {
+                ...s,
+                messages: [...messages, userMsg, newAssistantMsg],
+                timestamp: Date.now()
+              };
+            }
+            return s;
+          });
+          saveSessionsToLocal(updatedSessions);
         }
       }
     } catch (error) {
@@ -270,180 +283,17 @@ export default function App() {
     }
   };
 
-  const handleDeleteSession = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'sessions', id));
-      if (activeSessionId === id) {
-        handleNewChat();
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `sessions/${id}`);
+  const handleDeleteSession = (id: string) => {
+    const updatedSessions = sessions.filter(s => s.id !== id);
+    saveSessionsToLocal(updatedSessions);
+    if (activeSessionId === id) {
+      handleNewChat();
     }
   };
 
   const handleBackToSynthesis = () => {
     setGeneratedPrompt(null);
   };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="text-emerald-500 animate-spin" size={32} />
-          <p className="text-zinc-500 font-mono text-[10px] uppercase tracking-[0.2em]">Initializing Secure Systems...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    const handleEmailAuth = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setAuthError(null);
-      try {
-        if (authMode === 'login') {
-          await signInWithEmailAndPassword(auth, email, password);
-        } else if (authMode === 'signup') {
-          await createUserWithEmailAndPassword(auth, email, password);
-        } else {
-          await sendPasswordResetEmail(auth, email);
-          alert('Password reset email sent!');
-          setAuthMode('login');
-        }
-      } catch (err: any) {
-        if (err.code === 'auth/operation-not-allowed') {
-          setAuthError('Email/Password login is not enabled in Firebase Console. Please enable it in the Authentication tab.');
-        } else if (err.code === 'auth/popup-blocked') {
-          setAuthError('Sign-in popup was blocked. Please allow popups or open the app in a new tab.');
-        } else {
-          setAuthError(err.message);
-        }
-      }
-    };
-
-    return (
-      <div className="min-h-screen bg-black text-zinc-100 flex items-center justify-center p-6 relative overflow-hidden">
-        <div className="fixed inset-0 opacity-[0.1] pointer-events-none z-0"
-          style={{
-            backgroundImage: `url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=2000')`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
-        />
-        <div className="fixed inset-0 hero-gradient pointer-events-none z-0" />
-        
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="relative z-10 max-w-md w-full bg-zinc-950 border border-zinc-900 rounded-2xl p-8 shadow-2xl"
-        >
-          <div className="flex flex-col items-center text-center space-y-6">
-            <motion.div 
-              animate={{ rotate: [0, 90, 180, 270, 360] }}
-              transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-              className="w-16 h-16 bg-emerald-500 flex items-center justify-center rounded-sm shadow-[0_0_30px_rgba(16,185,129,0.3)]"
-            >
-              <Cpu className="text-black" size={32} />
-            </motion.div>
-            
-            <div className="space-y-2">
-              <h1 className="text-3xl font-bold tracking-tighter uppercase">PromptCraft <span className="text-emerald-500">Elite</span></h1>
-              <p className="text-zinc-500 font-mono text-[10px] uppercase tracking-widest">Secure Access Required</p>
-            </div>
-
-            <form onSubmit={handleEmailAuth} className="w-full space-y-4">
-              {authMode !== 'reset' && (
-                <>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                    <input 
-                      type="email" 
-                      placeholder="Email Address"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-sm focus:border-emerald-500 outline-none transition-colors"
-                      required
-                    />
-                  </div>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                    <input 
-                      type="password" 
-                      placeholder="Password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-sm focus:border-emerald-500 outline-none transition-colors"
-                      required
-                    />
-                  </div>
-                </>
-              )}
-              {authMode === 'reset' && (
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={16} />
-                  <input 
-                    type="email" 
-                    placeholder="Email Address"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl py-3 pl-10 pr-4 text-sm focus:border-emerald-500 outline-none transition-colors"
-                    required
-                  />
-                </div>
-              )}
-
-              {authError && (
-                <p className="text-red-500 text-[10px] font-mono uppercase text-center">{authError}</p>
-              )}
-
-              <button 
-                type="submit"
-                className="w-full py-3 bg-emerald-500 text-black rounded-xl font-bold hover:bg-emerald-400 transition-all active:scale-[0.98] uppercase tracking-widest text-xs"
-              >
-                {authMode === 'login' ? 'Access System' : authMode === 'signup' ? 'Initialize Account' : 'Reset Credentials'}
-              </button>
-            </form>
-
-            <div className="w-full flex items-center gap-4 py-2">
-              <div className="h-px flex-1 bg-zinc-900" />
-              <span className="text-[10px] font-mono text-zinc-700 uppercase">OR</span>
-              <div className="h-px flex-1 bg-zinc-900" />
-            </div>
-
-            <div className="w-full space-y-4">
-              <button 
-                onClick={async () => {
-                  try {
-                    setAuthError(null);
-                    await signInWithGoogle();
-                  } catch (err: any) {
-                    setAuthError(err.message);
-                  }
-                }}
-                className="w-full flex items-center justify-center gap-3 px-6 py-3 bg-white text-black rounded-xl font-bold hover:bg-zinc-200 transition-all active:scale-[0.98]"
-              >
-                <LogIn size={18} />
-                Google Authentication
-              </button>
-              
-              <div className="flex flex-col gap-2">
-                {authMode === 'login' ? (
-                  <>
-                    <button onClick={() => setAuthMode('signup')} className="text-[10px] text-zinc-500 hover:text-emerald-500 transition-colors uppercase font-mono">Create New Identity</button>
-                    <button onClick={() => setAuthMode('reset')} className="text-[10px] text-zinc-500 hover:text-emerald-500 transition-colors uppercase font-mono">Forgot Credentials?</button>
-                  </>
-                ) : (
-                  <button onClick={() => setAuthMode('login')} className="flex items-center justify-center gap-2 text-[10px] text-zinc-500 hover:text-emerald-500 transition-colors uppercase font-mono">
-                    <ArrowLeft size={12} /> Back to Login
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 selection:bg-emerald-500/30 relative font-sans flex">
@@ -464,7 +314,7 @@ export default function App() {
       />
 
       <AnimatePresence>
-        {deferredPrompt && !isInstalled && user && (
+        {deferredPrompt && !isInstalled && (
           <motion.div 
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}

@@ -1,10 +1,8 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { MessageSquare, Plus, Trash2, Clock, ChevronLeft, ChevronRight, LogOut, User as UserIcon, Download } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, Clock, ChevronLeft, ChevronRight, User as UserIcon, Download } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Message, PromptComponents } from '@/src/lib/gemini';
-import { useAuth } from './AuthProvider';
-import { logout } from '../lib/firebase';
 
 export interface Session {
   id: string;
@@ -47,8 +45,6 @@ export default function Sidebar({
   onInstall,
   isInstalled
 }: SidebarProps) {
-  const { user, isAdmin } = useAuth();
-
   return (
     <>
       {/* Toggle Button */}
@@ -150,24 +146,13 @@ export default function Sidebar({
 
         <div className="p-4 border-t border-zinc-900">
           <div className="flex items-center gap-3 p-2 rounded-lg bg-zinc-900/50 border border-zinc-800/50">
-            {user?.photoURL ? (
-              <img src={user.photoURL} alt="Profile" className="w-8 h-8 rounded-full border border-zinc-700" referrerPolicy="no-referrer" />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-500 border border-zinc-700">
-                <UserIcon size={14} />
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold text-zinc-300 truncate">{user?.displayName || 'User'}</p>
-              <p className="text-[8px] font-mono text-zinc-600 truncate uppercase tracking-tighter">{isAdmin ? 'ADMIN_ACCESS' : 'USER_ACCESS'}</p>
+            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-500 border border-zinc-700">
+              <UserIcon size={14} />
             </div>
-            <button 
-              onClick={() => logout()}
-              className="p-1.5 text-zinc-600 hover:text-emerald-500 transition-colors"
-              title="Logout"
-            >
-              <LogOut size={14} />
-            </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold text-zinc-300 truncate">Guest User</p>
+              <p className="text-[8px] font-mono text-zinc-600 truncate uppercase tracking-tighter">LOCAL_ACCESS</p>
+            </div>
           </div>
 
           {installPrompt && !isInstalled && (
